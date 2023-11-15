@@ -2,12 +2,8 @@ package dungeon.dungeonmaker;
 
 import javafx.event.ActionEvent;
 import javafx.fxml.FXML;
-import javafx.geometry.Point2D;
-import javafx.scene.layout.AnchorPane;
-import javafx.scene.paint.Color;
+import javafx.scene.layout.Pane;
 import javafx.scene.shape.Rectangle;
-
-import java.util.ArrayList;
 
 /**
  * Controller class handling input to the root level GUI.
@@ -15,12 +11,14 @@ import java.util.ArrayList;
  */
 public class Controller {
 
-    // Instanced variables
-    private Dungeon dungeon;
-    private ArrayList<Rectangle> rectList;
+    // static final variables
+    public static final int DUNGEON_SIZE_X = 900;
+
+    // Instance variables
+    private final Dungeon dungeon;
 
     @FXML
-    private AnchorPane dungeonPane;
+    private Pane dungeonPane;
 
     /**
      * Controller constructor that instantiates a dungeon
@@ -28,57 +26,21 @@ public class Controller {
      */
     public Controller() {
         this.dungeon = new GridDungeon(dungeonPane,60,30);
-        this.rectList = new ArrayList<>();
     }
 
     /**
      * Shows the current tileMap of the dungeon on the GUI.
      */
     public void showGrid() {
+        clearGrid();
         System.out.println("Showing grid...");
         DungeonTile[][] tileMap = dungeon.getTileMap();
-        DungeonRoom[][] dungeonRooms = ((GridDungeon)dungeon).getDungeonRooms();
-        // render rooms
-        for (int x = 0; x < tileMap.length; x++) {
-            for (int y = 0; y < tileMap[x].length; y++) {
-                // Create a rectangle
-                Rectangle rect = new Rectangle(
-                        x * 15,
-                        y * 15,
-                        15,15);
-                // Color it according to occupancy
-                if (tileMap[x][y].isOccupied()) {
-                    // Create white tile for rooms and corridors
-                    rect.setFill(Color.WHITE);
-                    rect.setStroke(Color.BLACK);
-                } else {
-                    // Create black tile for walls
-                    rect.setFill(Color.BLACK);
-                    rect.setStroke(Color.WHITE);
-                }
-                // Add it to the pane, save it to list
-                dungeonPane.getChildren().add(rect);
-                rectList.add(rect);
-            }
-        }
 
-        // render centers
-        for (DungeonRoom[] dungeonRoom : dungeonRooms) {
-            for (DungeonRoom room : dungeonRoom) {
-                if (room.containsRoom()) {
-                    Point2D roomCenter = room.getRoomCenter();
-                    // Create a rectangle
-                    Rectangle rect = new Rectangle(
-                            roomCenter.getX() * 15,
-                            roomCenter.getY() * 15,
-                            15, 15);
-                    // Create red tile
-                    rect.setFill(Color.RED);
-                    rect.setStroke(Color.BLACK);
-                    // Add it to the pane
-                    dungeonPane.getChildren().add(rect);
-                    rectList.add(rect);
-                }
+        // render rooms
+        for (DungeonTile[] tiles : tileMap) {
+            for (DungeonTile tile : tiles) {
+                Rectangle currTile = tile.getSquare();
+                dungeonPane.getChildren().add(currTile);
             }
         }
     }
@@ -89,6 +51,7 @@ public class Controller {
     public void generateRooms() {
         System.out.println("Generating rooms...");
         GridDungeon gridDungeon = (GridDungeon) this.dungeon;
+        gridDungeon.initMap();
         gridDungeon.createRooms();
         showGrid();
     }
@@ -120,18 +83,14 @@ public class Controller {
      * Re-initializes the dungeon and clears the GUI.
      */
     public void clearGrid() {
-        clearGUI();
-        dungeon.initMap();
-        showGrid();
-    }
+        System.out.println("Clearing grid...");
+        DungeonTile[][] tileMap = dungeon.getTileMap();
 
-    /**
-     * Removes all shapes from the dungeon GUI
-     */
-    public void clearGUI() {
-        for (Rectangle rect:
-             rectList) {
-            dungeonPane.getChildren().remove(rect);
+        // render rooms
+        for (DungeonTile[] tiles : tileMap) {
+            for (DungeonTile tile : tiles) {
+                dungeonPane.getChildren().remove(tile.getSquare());
+            }
         }
     }
 }

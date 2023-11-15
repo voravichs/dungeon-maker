@@ -6,7 +6,7 @@ abstract class Dungeon {
 
     DungeonTile[][] tileMap;
     Pane dungeonPane;
-    int mapSizeX, mapSizeY;
+    int mapSizeX, mapSizeY, tileSize;
 
     abstract void initMap();
 

@@ -2,6 +2,8 @@ package dungeon.dungeonmaker;
 
 import javafx.geometry.Point2D;
 import javafx.scene.layout.Pane;
+import javafx.scene.shape.Rectangle;
+import javafx.util.Pair;
 
 import java.util.*;
 
@@ -17,7 +19,10 @@ public class GridDungeon extends Dungeon {
     static int[] dCol = { 0, 1, 0, -1 };
 
     // Instance variables
-    private final DungeonRoom[][] dungeonRooms;
+    private final DungeonRoom[] dungeonRooms;
+    private final DungeonRoom[][] dungeonRoomGrid;
+    private int totalRooms;
+    private Point2D startingRoom;
     private Node linkedDungeonRooms;
 
     // Derived values from mapSize
@@ -37,25 +42,31 @@ public class GridDungeon extends Dungeon {
         this.mapSizeY = y;
         this.roomSectionX = x/4;
         this.roomSectionY = y/2;
+        this.tileSize = Controller.DUNGEON_SIZE_X / x;
         this.dungeonPane = dungeonPane;
-        dungeonRooms = new DungeonRoom[4][2];
+        dungeonRooms = new DungeonRoom[8];
+        dungeonRoomGrid = new DungeonRoom[4][2];
         initMap();
     }
 
+    /**
+     * Initializes the dungeon map with empty tiles and rooms.
+     */
     @Override
     public void initMap() {
         // Initialize the tileMap
         for (int x = 0; x < mapSizeX; x++) {
             for (int y = 0; y < mapSizeY; y++) {
-                tileMap[x][y] = new DungeonTile();
+                tileMap[x][y] = new DungeonTile(
+                        new Rectangle(tileSize,tileSize),
+                        new Point2D(x * tileSize, y * tileSize),
+                        DungeonTile.TileType.WALL);
             }
         }
 
         // Initialize the rooms
-        for (int i = 0; i < 4; i++) {
-            for (int j = 0; j < 2; j++) {
-                dungeonRooms[i][j] = new DungeonRoom();
-            }
+        for (int i = 0; i < 8; i++) {
+            dungeonRooms[i] = new DungeonRoom();
         }
     }
 
@@ -66,7 +77,8 @@ public class GridDungeon extends Dungeon {
      */
     public void createRooms() {
         // Random number of rooms 3-7
-        int randomNumRooms = (int)(Math.random() * 5 + 3);
+        int randomNumRooms = (int)(Math.random() * 4 + 4);
+        totalRooms = randomNumRooms;
 
         // Randomly select the rooms to generate
         List<Integer> randInts = new ArrayList<>();
@@ -75,30 +87,55 @@ public class GridDungeon extends Dungeon {
         }
         Collections.shuffle(randInts);
 
-        // Generate the rooms twice for interesting
+        // Generate the rooms
         for (int i = 0; i < randomNumRooms; i++) {
             int currentRoom = randInts.get(i);
             generateRoom(currentRoom);
-            generateRoom(currentRoom);
         }
 
-        // Create data structure to store the rooms
-        createLinkedRooms();
-
-        // Set centers for empty rooms
-        for (int roomNum = randomNumRooms; roomNum < 8; roomNum++) {
-            if (roomNum <= 3) {
-                Point2D center = new Point2D(
-                        (roomSectionX * roomNum) + roomSectionX / 2,
-                        roomSectionY / 2);
-                dungeonRooms[roomNum][0].setContainsRoom(true);
-                dungeonRooms[roomNum][0].setRoomCenter(center);
+        // Add centers for the missing rooms
+        for (int i = randomNumRooms; i < 8; i++) {
+            int currRoom = randInts.get(i);
+            Point2D center;
+            int roomXOffset, roomYOffset = 0;
+            if (currRoom % 2 != 0) {
+                roomXOffset = (currRoom - 1) / 2;
+                roomYOffset = roomSectionY;
             } else {
-                Point2D center = new Point2D(
-                        (roomSectionX * roomNum) + roomSectionX / 2,
-                        roomSectionY / 2);
+                roomXOffset = currRoom / 2;
+            }
+
+            // Set the center
+            center = new Point2D(
+                    (int) ((roomSectionX * roomXOffset) + (double) (roomSectionX / 2)),
+                    (int) (roomYOffset + (double) roomSectionY / 2));
+            // Store center of room
+            dungeonRooms[currRoom].setRoomCenter(center);
+            tileMap[(int) center.getX()][(int) center.getY()].setType(DungeonTile.TileType.CENTER);
+        }
+
+        // transform dungeon rooms into a 4x2
+        for (int i = 0; i < 8; i++) {
+            if (i % 2 == 0) {
+                dungeonRoomGrid[i / 2][0] = dungeonRooms[i];
+                dungeonRoomGrid[i / 2][0].setRoomIndex(new Point2D((double) i / 2, 0));
+            } else {
+                dungeonRoomGrid[(i - 1) / 2][1] = dungeonRooms[i];
+                dungeonRoomGrid[(i - 1) / 2][1].setRoomIndex(new Point2D((double) (i - 1) / 2, 1));
             }
         }
+
+        // Set starting room
+        int startingRoomNum = randInts.get(0);
+        if (startingRoomNum % 2 == 0) {
+            startingRoom = new Point2D((double) startingRoomNum / 2, 0);
+        } else {
+            startingRoom = new Point2D((double) (startingRoomNum - 1) / 2, 1);
+        }
+
+        // Create linkedList of rooms
+        Node[][] visited = new Node[4][2];
+        linkedDungeonRooms = construct(dungeonRoomGrid, 0, 0, 4, 2, visited);
     }
 
     /**
@@ -107,6 +144,15 @@ public class GridDungeon extends Dungeon {
      *                to generate.
      */
     private void generateRoom(int roomNum) {
+        // Set x/y offset according to the room number
+        int roomXOffset, roomYOffset = 0;
+        if (roomNum % 2 != 0) {
+            roomXOffset = (roomNum - 1) / 2;
+            roomYOffset = roomSectionY;
+        } else {
+            roomXOffset = roomNum / 2;
+        }
+
         // Get a random x/y size between 5-10 blocks for the room
         int randomXSize = (int)(Math.random() * 7 + 5);
         int randomYSize = (int)(Math.random() * 7 + 5);
@@ -120,90 +166,174 @@ public class GridDungeon extends Dungeon {
                 (int)(Math.random() * max.getX() + 1),
                 (int)(Math.random() * max.getY() + 1));
 
-        // Room nums 0-3 are top
-        Point2D center;
-        if (roomNum <= 3) {
-            // Set the center
-            center = new Point2D(
-                    (roomSectionX * roomNum) + (int)(origin.getX() + randomXSize / 2),
-                    (int)(origin.getY() + randomYSize / 2));
+        // Set the center
+        Point2D center = new Point2D(
+                (roomSectionX * roomXOffset) + (int)(origin.getX() + randomXSize / 2),
+                roomYOffset + (int)(origin.getY() + randomYSize / 2));
 
-            // Only first room generation stores the center
-            if (!dungeonRooms[roomNum][0].containsRoom()) {
-                dungeonRooms[roomNum][0].setContainsRoom(true);
-                dungeonRooms[roomNum][0].setRoomCenter(center);
-            }
+        // Store center of room, set containsRoom, and set room index
+        dungeonRooms[roomNum].setRoomCenter(center);
+        dungeonRooms[roomNum].setContainsRoom(true);
 
-            for (int x = 0; x < randomXSize; x++) {
-                for (int y = 0; y < randomYSize; y++) {
-                    int xCoord = (roomSectionX * roomNum) + (int)origin.getX() + x;
-                    int yCoord = (int)origin.getY() + y;
-                    tileMap[xCoord][yCoord].setOccupied(true);
+        // Fill the coords of the room graphically
+        for (int x = 0; x < randomXSize; x++) {
+            for (int y = 0; y < randomYSize; y++) {
+                int xCoord = (roomSectionX * roomXOffset) + (int)origin.getX() + x;
+                int yCoord = (int)origin.getY() + y + roomYOffset;
+                // if center, instead it as center
+                if (xCoord == center.getX() && yCoord == center.getY()) {
+                    tileMap[xCoord][yCoord].setType(DungeonTile.TileType.CENTER);
+                } else {
+                    tileMap[xCoord][yCoord].setType(DungeonTile.TileType.FLOOR);
                 }
             }
         }
-        // room nums 4-7 are bottom
-        else {
-            center = new Point2D(
-                    (roomSectionX * (roomNum - 4)) + (int)(origin.getX() + randomXSize / 2),
-                    roomSectionY + (int)(origin.getY() + randomYSize / 2));
-
-            if (!dungeonRooms[roomNum - 4][1].containsRoom()) {
-                dungeonRooms[roomNum - 4][1].setContainsRoom(true);
-                dungeonRooms[roomNum - 4][1].setRoomCenter(center);
-            }
-
-            for (int x = 0; x < randomXSize; x++) {
-                for (int y = 0; y < randomYSize; y++) {
-                    int xCoord = (roomSectionX * (roomNum - 4)) + (int)origin.getX() + x;
-                    int yCoord = roomSectionY + (int)origin.getY() + y;
-                    tileMap[xCoord][yCoord].setOccupied(true);
-                }
-            }
-        }
-    }
-
-    /**
-     * Creates a doubly linked list on a 2D array that
-     * connects each room to their adjacent rooms.
-     */
-    private void createLinkedRooms() {
-        // function call for construct
-        // the doubly linked list
-        linkedDungeonRooms = constructDoublyListUtil(this.dungeonRooms, 0, 0, null);
     }
 
     public void connectRooms() {
-        // Connect rooms horizontally, taking in the top and bottom nodes
-        connectHorizontalRooms(linkedDungeonRooms);
-        connectHorizontalRooms(linkedDungeonRooms.down);
-    }
+        // Create a list of connected nodes
+        ArrayList<Node> connectedNodes = new ArrayList<>();
+        Queue<Node> roomQueue = new LinkedList<>();
+        ArrayList<Pair<Node, Node>> connections = new ArrayList<>();
+        int totalRoomsConnected = 1;
 
-    private void connectHorizontalRooms(Node dungeonNode) {
-        if (dungeonNode == null) {
-            return;
+        // Find the room node associated with the starting room
+        System.out.println(startingRoom);
+        Node startRoomNode = linkedDungeonRooms;
+        for (int x = 0; x < startingRoom.getX(); x++) {
+            startRoomNode = startRoomNode.right;
         }
-        if (dungeonNode.data.containsRoom()) {
-            Node endingNode = findNextRoomHorizontal(dungeonNode);
-            if (endingNode != null) {
-                BFS(dungeonNode.data.getRoomCenter(),
-                        endingNode.data.getRoomCenter());
+        for (int y = 0; y < startingRoom.getY(); y++) {
+            startRoomNode = startRoomNode.down;
+        }
+
+        // Starting from the start room, continually find adj rooms
+        connectedNodes.add(startRoomNode);
+        roomQueue.add(startRoomNode);
+        while(!roomQueue.isEmpty()) {
+            Node currNode = roomQueue.remove();
+            int roomsConnected = findAdjRooms(currNode, connectedNodes, roomQueue, connections,false);
+            totalRoomsConnected += roomsConnected;
+            if(roomsConnected == 0 && totalRoomsConnected < totalRooms) {
+                findAdjRooms(currNode, connectedNodes, roomQueue, connections, true);
             }
-
         }
-        connectHorizontalRooms(dungeonNode.next);
+        // Remove connections that go nowhere
+        // Put connections incoming to non-rooms in a HashMap
+        HashMap<Node, Integer> numNonRoomIncoming = new HashMap<>();
+        ArrayList<Node> incomingNodes = new ArrayList<>();
+        for (Pair<Node, Node> connection: connections) {
+            Node end = connection.getValue();
+            if (!end.data.containsRoom()) {
+                if (numNonRoomIncoming.containsKey(end)) {
+                    int prev = numNonRoomIncoming.get(end);
+                    numNonRoomIncoming.put(end, prev + 1);
+                } else {
+                    numNonRoomIncoming.put(end, 1);
+                }
+            }
+            incomingNodes.add(connection.getKey());
+        }
+        // Delete any connections that are dead ends in the HashMap
+        ArrayList<Point2D> remove = new ArrayList<>();
+        for (Node nonRoomPoint: numNonRoomIncoming.keySet()) {
+            if (!incomingNodes.contains(nonRoomPoint)) {
+                remove.add(nonRoomPoint.data.getRoomCenter());
+            }
+        }
+
+        // Check if
+        if (totalRoomsConnected < totalRooms) {
+            System.out.println("fuck");
+        }
+
+        for (Pair<Node, Node> connection: connections) {
+            Point2D start = connection.getKey().data.getRoomCenter();
+            Point2D end = connection.getValue().data.getRoomCenter();
+            if (remove.contains(end)) {
+                continue;
+            }
+            BFS(start, end);
+        }
     }
 
-    private Node findNextRoomHorizontal(Node currNode) {
-        if (currNode.next == null) {
-            return null;
-        }
-        if (currNode.next.data.containsRoom()) {
-            return currNode.next;
+    private int findAdjRooms(
+            Node root,
+            ArrayList<Node> connectedNodes,
+            Queue<Node> roomQueue,
+            ArrayList<Pair<Node, Node>> connections,
+            boolean emptyAllowed) {
+        boolean foundRoom = false;
+        int roomsConnected = 0;
+
+        // Either bias leftward or rightward depending on room index
+        ArrayList<Node> adjNodes = new ArrayList<>();
+        if (root.data.getRoomIndex().getX() < 2) {
+            adjNodes.addAll(Arrays.asList(
+                    root.up, root.right, root.down, root.left));
         } else {
-            return findNextRoomHorizontal(currNode.next);
+            adjNodes.addAll(Arrays.asList(
+                    root.up, root.left, root.down, root.right));
         }
+
+        if (!emptyAllowed) {
+            // Go through all the adjNodes and add adj rooms
+            for (Node currAdjNode: adjNodes) {
+                // check that the node is not out of bounds
+                if (currAdjNode != null) {
+                    // If not on the list of current connected nodes, add it and return
+                    if (!connectedNodes.contains(currAdjNode) && (currAdjNode.data.containsRoom())) {
+                        connectedNodes.add(currAdjNode);
+                        roomQueue.add(currAdjNode);
+                        connections.add(new Pair<>(root, currAdjNode));
+                        roomsConnected++;
+                    }
+                }
+            }
+        } else {
+            // Go through enough adjNodes to find one empty room
+            for (Node currAdjNode: adjNodes) {
+                // check that the node is not out of bounds
+                if (currAdjNode != null) {
+                    // If not on the list of current connected nodes, add it and return
+                    if (!connectedNodes.contains(currAdjNode)) {
+                        connectedNodes.add(currAdjNode);
+                        roomQueue.add(currAdjNode);
+                        connections.add(new Pair<>(root, currAdjNode));
+                        return 0;
+                    }
+                }
+            }
+        }
+
+        return roomsConnected;
     }
+
+//    private void connectHorizontalRooms(Node dungeonNode) {
+//        if (dungeonNode == null) {
+//            return;
+//        }
+//        if (dungeonNode.data.containsRoom()) {
+//            Node endingNode = findNextRoomHorizontal(dungeonNode);
+//            if (endingNode != null) {
+//                BFS(dungeonNode.data.getRoomCenter(),
+//                        endingNode.data.getRoomCenter());
+//            }
+//
+//        }
+//        connectHorizontalRooms(dungeonNode.next);
+//    }
+
+//    private Node findNextRoomHorizontal(Node currNode) {
+//        if (currNode.next == null) {
+//            return null;
+//        }
+//        if (currNode.next.data.containsRoom()) {
+//            return currNode.next;
+//        } else {
+//            return findNextRoomHorizontal(currNode.next);
+//        }
+//    }
 
     private void BFS(Point2D start, Point2D end) {
         Queue<Point2D> coordQueue = new LinkedList<>();
@@ -277,68 +407,49 @@ public class GridDungeon extends Dungeon {
             return;
         }
         DungeonTile currTile = tileMap[(int) currPoint.getX()][(int) currPoint.getY()];
-        if (!currTile.isOccupied()) {
-            currTile.setOccupied(true);
+        if (currTile.getType() != DungeonTile.TileType.FLOOR) {
+            currTile.setType(DungeonTile.TileType.FLOOR);
         }
         traceCorridor(pred, currPoint);
     }
 
-    public DungeonRoom[][] getDungeonRooms() {
+    public DungeonRoom[] getDungeonRooms() {
         return this.dungeonRooms;
     }
 
-    // struct node of doubly linked
-    // list with four pointer
-    // next, prev, up, down
+    // node of linked list
     static class Node {
         DungeonRoom data;
-        Node next;
-        Node prev;
-        Node up;
+        Node right;
         Node down;
-    }
+        Node up;
+        Node left;
+    };
 
-    // function to create a new node
-    static Node createNode(DungeonRoom data) {
-        Node temp = new Node();
-        temp.data = data;
-        temp.next = null;
-        temp.prev = null;
-        temp.up = null;
-        temp.down = null;
-        return temp;
-    }
-
-    // function to construct the
-    // doubly linked list
-    static Node constructDoublyListUtil(DungeonRoom[][] mtrx, int i, int j, Node curr) {
-        if (i >= 4 || j >= 2) {
+    // returns head pointer of linked list
+    // constructed from 2D matrix
+    static Node construct(DungeonRoom[][] arr, int i, int j, int m,
+                          int n, Node[][] visited)
+    {
+        // return if i or j is out of bounds
+        if (i > m - 1 || j > n - 1 || i < 0 || j < 0)
             return null;
+        // Check if node is previously created then,
+        // don't need to create new/
+        if (visited[i][j] != null) {
+            return visited[i][j];
         }
+        // create a new node for current i and j
+        // and recursively allocate its down and
+        // right pointers
+        Node temp = new Node();
+        visited[i][j] = temp;
+        temp.data = arr[i][j];
+        temp.right = construct(arr, i + 1, j, m, n, visited);
+        temp.left = construct(arr, i - 1, j, m, n, visited);
+        temp.down = construct(arr, i, j + 1, m, n, visited);
+        temp.up = construct(arr, i, j - 1, m, n, visited);
 
-        // Create Node with value contain
-        // in matrix at index (i, j)
-        Node temp = createNode(mtrx[i][j]);
-
-        // Assign address of curr into
-        // the prev pointer of temp
-        temp.prev = curr;
-
-        // Assign address of curr into
-        // the up pointer of temp
-        temp.up = curr;
-
-        // Recursive call for next pointer
-        temp.next
-                = constructDoublyListUtil(mtrx, i + 1, j, temp);
-
-        // Recursive call for down pointer
-        temp.down= constructDoublyListUtil(mtrx, i, j + 1, temp);
-
-        // Return newly constructed node
-        // who's all four node connected
-        // at it's appropriate position
         return temp;
-
     }
 }
